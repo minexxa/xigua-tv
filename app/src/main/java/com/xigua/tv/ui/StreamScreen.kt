@@ -64,6 +64,7 @@ import com.xigua.tv.player.StreamViewModel
 fun StreamScreen(
     viewModel: StreamViewModel,
     onOpenMy: () -> Unit = {},
+    onBack: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val currentIndex by viewModel.currentIndex.collectAsState()
@@ -128,6 +129,7 @@ fun StreamScreen(
                     }
                     Key(KeyEvent.KEYCODE_MENU) -> { viewModel.toggleFavorite(); true } // 收藏切换
                     Key(KeyEvent.KEYCODE_GUIDE), Key(KeyEvent.KEYCODE_F), Key(KeyEvent.KEYCODE_INFO) -> { onOpenMy(); true } // 打开「我的」
+                    Key.Back -> { onBack(); true } // 返回键：退出沉浸流，回到导航主页（小窗续播）
                     else -> false
                 }
             },
@@ -207,9 +209,9 @@ fun StreamScreen(
                     GuideRow("OK", "暂停 / 显示信息")
                     GuideRow("左 / 右", "快退 / 快进 10 秒")
                     GuideRow("菜单键", "收藏 / 取消收藏")
-                    GuideRow("GUIDE / F", "进入「我的」页")
+                    GuideRow("返回键", "退出全屏，进入导航主页（小窗续播）")
                     Spacer(Modifier.height(14.dp))
-                    Text("按 OK 随时查看信息", color = Color(0xFFBBBBBB), fontSize = 14.sp)
+                    Text("导航主页可进入「我的」页", color = Color(0xFFBBBBBB), fontSize = 14.sp)
                 }
             }
         }
@@ -336,7 +338,7 @@ private fun BoxScope.StreamInfoOverlay(video: VideoInfo) {
         }
         Spacer(Modifier.height(14.dp))
         Text(
-            text = "上/下切换 · OK暂停 · 左右快进 · 菜单收藏 · GUIDE进入我的",
+            text = "上/下切换 · OK暂停 · 左右快进 · 菜单收藏 · 返回键退出全屏",
             color = Color(0xFF888888),
             fontSize = 13.sp,
         )
