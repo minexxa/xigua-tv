@@ -1,6 +1,6 @@
 # 西瓜视频 TV 版（第三方）— Kotlin 工程
 
-## 当前进度：第三步 · 沉浸式短视频流（已完成）
+## 当前进度：第四步 · 预加载 + 观看进度记忆（已完成）
 
 基于第一步验证的解析链路（抖音移动 Feed 接口，免签名/免 Cookie），搭建 Android TV 工程并实现单视频播放。
 
@@ -26,13 +26,17 @@ app/src/main/java/com/xigua/tv/
 ├── data/
 │   ├── VideoInfo.kt             # 统一视频模型（含清晰度/横竖屏判断）
 │   ├── FeedApi.kt               # Feed 接口封装（多端点容灾 + JSON 解析）
-│   └── FeedRepository.kt        # 分页加载 + 去重累积（第三步新增）
+│   ├── FeedRepository.kt        # 分页加载 + 去重累积
+│   └── history/                 # Room 观看历史（第四步新增）
+│       ├── WatchHistory.kt      # 实体：进度/时长/观看时间
+│       ├── WatchHistoryDao.kt   # DAO：保存/查询/续播位置
+│       └── AppDatabase.kt       # 数据库单例
 ├── player/
 │   ├── PlayerViewModel.kt       # 单视频播放（第二步，保留作参考）
-│   └── StreamViewModel.kt       # 视频流：单播放器复用 + index切换 + 无限流（第三步）
+│   └── StreamViewModel.kt       # 视频流：滑动窗口预加载 + 无限流 + 进度记忆
 ├── ui/
 │   ├── PlayerScreen.kt          # 单视频界面（第二步，保留作参考）
-│   ├── StreamScreen.kt          # 沉浸式流：VerticalPager + 封面占位 + 信息浮层（第三步）
+│   ├── StreamScreen.kt          # 沉浸式流：VerticalPager + 封面占位 + 续播提示
 │   └── theme/Theme.kt
 └── res/                         # Manifest / TV banner / launcher icon
 ```
@@ -64,13 +68,15 @@ app/build/outputs/apk/debug/app-debug.apk
 > 本次已在沙箱内实测编译通过（`BUILD SUCCESSFUL`），并验证了 APK 签名与 Leanback TV 声明。
 > 工程使用腾讯云/阿里云 Maven 镜像加速依赖下载（`settings.gradle.kts`），国内网络可直接编译。
 
-## 验证要点（第三步）
+## 验证要点（第四步）
 
 1. 启动后自动加载推荐流 → 第一个视频全屏自动播放
-2. 按遥控器下键 → 切到下一个视频并播放（封面占位 → 播放）
+2. 按遥控器下键 → 切到下一个视频（已预缓冲，零延迟）
 3. 按 OK → 暂停并显示标题/作者/清晰度浮层；再按 OK 恢复
 4. 左右键快进快退 10 秒
 5. 连续下滑到倒数第 2 个 → 自动追加下一批（无限流）
+6. **上键切回看过的视频 → 从上次进度续播，顶部提示「继续上次观看 X 秒」**
+7. 退出 App 再进入 → 进度已存 Room，切到该视频仍能续播
 
 ## 与第一步脚本的对应关系
 
@@ -91,9 +97,17 @@ app/build/outputs/apk/debug/app-debug.apk
 
 tv-material 留到后续做频道导航/信息流卡片时再引入（届时统一升级 BOM）。
 
-## 下一步（第四步候选）
+## 预加载与进度记忆实现（第四步）
 
-- Room 观看历史 + 续播
+- **滑动窗口队列**：播放器队列始终 `[当前, 下一个]`，ExoPlayer 自动预缓冲下一个
+- **下滑零延迟**：`seekToNext()` 播放已缓冲内容，随后 `removeMediaItem(0)` + `addMediaItem()` 补窗口
+- **上滑/跳跃**：重建队列，按 Room 历史位置续播
+- **进度保存**：每 3 秒 + 切换前 + 暂停时 + onCleared 时保存
+- **看完判定**：进度 ≥95% 视为看完，下次从 0 播
+
+## 下一步候选
+
+- 观看历史列表页（Room 已有数据，加个 TV 界面展示）
 - 频道分类导航（引入 tv-material）
 - 搜索
-- 播放到 50% 预加载下一个 MediaItem（进一步降低切换延迟）
+- 收藏 / 点赞
