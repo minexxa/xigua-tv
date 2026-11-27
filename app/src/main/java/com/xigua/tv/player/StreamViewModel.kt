@@ -160,12 +160,13 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** 立即保存当前播放进度 */
+    /** 立即保存当前播放进度（保留已有收藏状态） */
     private fun saveProgressNow() {
         val video = currentVideo ?: return
         val pos = exoPlayer.currentPosition
         if (pos <= 0L) return
         viewModelScope.launch {
+            val favorite = historyDao.findById(video.awemeId)?.isFavorite ?: false
             historyDao.save(
                 WatchHistory(
                     awemeId = video.awemeId,
@@ -175,8 +176,60 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
                     positionMs = pos,
                     durationMs = exoPlayer.duration.takeIf { it > 0 } ?: video.durationMs,
                     lastWatchAt = System.currentTimeMillis(),
+                    isFavorite = favorite,
                 )
             )
+        }
+    }
+
+    /**
+     * 切换当前视频收藏状态。
+     * 若视频尚无历史记录，先构造一条再更新收藏标记。
+     */
+    fun toggleFavorite() {
+        val video = currentVideo ?: return
+        viewModelScope.launch {
+            val existing = historyDao.findById(video.awemeId)
+            val newState = !(existing?.isFavorite ?: false)
+            historyDao.save(
+                WatchHistory(
+                    awemeId = video.awemeId,
+                    title = video.title,
+                    author = video.author,
+                    cover = video.cover,
+                    positionMs = existing?.positionMs ?: 0L,
+                    durationMs = existing?.durationMs ?: video.durationMs,
+                    lastWatchAt = System.currentTimeMillis(),
+                    isFavorite = newState,
+                )
+            )
+            _favoriteToast.value = if (newState) "已加入收藏" else "已取消收藏"
+        }
+    }
+
+    /** 收藏操作提示（一次性事件，UI 消费后清空） */
+    private val _favoriteToast = MutableStateFlow<String?>(null)
+    val favoriteToast: StateFlow<String?> = _favoriteToast.asStateFlow()
+    fun clearFavoriteToast() { _favoriteToast.value = null }
+
+    /**
+     * 从历史/收藏页按 ID 播放：解析直链后把该视频放到流首位并播放。
+     * @return 是否成功发起
+     */
+    fun playById(id: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.resolveById(id)
+            val video = result.getOrNull()
+            if (video == null) {
+                onResult(false)
+                return@launch
+            }
+            repository.prepend(video)
+            val list = repository.currentList()
+            _uiState.value = StreamUiState.Ready(list)
+            _currentIndex.value = 0
+            playAt(0)
+            onResult(true)
         }
     }
 

@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [WatchHistory::class], version = 1, exportSchema = false)
+@Database(entities = [WatchHistory::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun watchHistoryDao(): WatchHistoryDao
@@ -20,7 +20,8 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "xigua_tv.db",
-                ).build().also { INSTANCE = it }
+                ).fallbackToDestructiveMigration() // 全新安装策略：版本变更直接重建，不写迁移代码
+                    .build().also { INSTANCE = it }
             }
         }
     }

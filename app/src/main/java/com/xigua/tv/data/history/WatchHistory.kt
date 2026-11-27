@@ -20,6 +20,8 @@ data class WatchHistory(
     val durationMs: Long = 0L,
     /** 最后观看时间戳（毫秒） */
     val lastWatchAt: Long = 0L,
+    /** 是否已收藏（第五步：收藏功能） */
+    val isFavorite: Boolean = false,
 ) {
     /** 是否已看完（进度超过 95%） */
     val isFinished: Boolean

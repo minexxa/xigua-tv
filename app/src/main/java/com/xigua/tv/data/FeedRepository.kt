@@ -61,6 +61,24 @@ class FeedRepository(private val api: FeedApi = FeedApi()) {
         loadMore(8)
     }
 
-    /** 按 ID 查找视频（用于从单视频跳转） */
+    /** 按 ID 查找已加载的视频 */
     fun findById(id: String): VideoInfo? = videos.firstOrNull { it.awemeId == id }
+
+    /** 按 ID 从网络解析单个视频（历史/收藏页播放用） */
+    suspend fun resolveById(id: String): Result<VideoInfo> = api.resolveVideo(id)
+
+    /** 把指定视频放到流首位（已存在则不动，避免重复） */
+    fun prepend(video: VideoInfo) {
+        if (seenIds.contains(video.awemeId)) {
+            // 已存在：移到首位
+            val idx = videos.indexOfFirst { it.awemeId == video.awemeId }
+            if (idx > 0) {
+                val item = videos.removeAt(idx)
+                videos.add(0, item)
+            }
+        } else {
+            seenIds.add(video.awemeId)
+            videos.add(0, video)
+        }
+    }
 }

@@ -2,6 +2,7 @@ package com.xigua.tv.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import android.view.KeyEvent
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -57,12 +59,24 @@ import com.xigua.tv.player.StreamViewModel
  *   其他页显示封面图，避免多个 PlayerView 争抢同一播放器导致黑屏。
  */
 @Composable
-fun StreamScreen(viewModel: StreamViewModel) {
+fun StreamScreen(
+    viewModel: StreamViewModel,
+    onOpenMy: () -> Unit = {},
+) {
     val uiState by viewModel.uiState.collectAsState()
     val currentIndex by viewModel.currentIndex.collectAsState()
     val controlsVisible by viewModel.controlsVisible.collectAsState()
     val resumedFrom by viewModel.resumedFrom.collectAsState()
+    val favoriteToast by viewModel.favoriteToast.collectAsState()
     val focusRequester = remember { FocusRequester() }
+
+    // 收藏提示 2 秒后自动消失
+    LaunchedEffect(favoriteToast) {
+        if (favoriteToast != null) {
+            kotlinx.coroutines.delay(2_000)
+            viewModel.clearFavoriteToast()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -86,6 +100,8 @@ fun StreamScreen(viewModel: StreamViewModel) {
                     }
                     Key.DirectionLeft -> { viewModel.seekBy(-10_000); true }
                     Key.DirectionRight -> { viewModel.seekBy(10_000); true }
+                    Key(KeyEvent.KEYCODE_MENU) -> { viewModel.toggleFavorite(); true } // 收藏切换
+                    Key(KeyEvent.KEYCODE_GUIDE), Key(KeyEvent.KEYCODE_F) -> { onOpenMy(); true } // 打开「我的」
                     // 上下键交给 VerticalPager 处理滚动
                     else -> false
                 }
@@ -135,6 +151,19 @@ fun StreamScreen(viewModel: StreamViewModel) {
                 if (controlsVisible) {
                     viewModel.currentVideo?.let { StreamInfoOverlay(it) }
                 }
+            }
+        }
+
+        // 收藏提示（居中 Toast）
+        if (favoriteToast != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color(0xDD000000), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 32.dp, vertical = 18.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = favoriteToast!!, color = Color.White, fontSize = 22.sp)
             }
         }
     }
