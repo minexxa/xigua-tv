@@ -84,6 +84,17 @@ app/build/outputs/apk/debug/app-debug.apk
 > 本次已在沙箱内实测编译通过（`BUILD SUCCESSFUL`），并验证了 APK 签名与 Leanback TV 声明。
 > 工程使用腾讯云/阿里云 Maven 镜像加速依赖下载（`settings.gradle.kts`），国内网络可直接编译。
 
+### 桌面图标说明（已修复）
+
+Manifest 的 MainActivity 同时声明两个 launcher category：
+- `LAUNCHER` —— 普通桌面 / 第三方桌面（当贝等盒子桌面）显示图标
+- `LEANBACK_LAUNCHER` —— Android TV 原生桌面显示图标 + banner
+
+`android.software.leanback` 设为 `required=false`，避免第三方桌面把应用当作 TV 专用而过滤掉。
+图标使用全密度真实 PNG（`mipmap-{mdpi..xxxhdpi}/ic_launcher.png`），第三方桌面兼容性最佳。
+
+> 验证：`aapt dump badging` 应同时输出 `launchable-activity` 与 `leanback-launchable-activity`。
+
 ## 验证要点（第四步）
 
 1. 启动后自动加载推荐流 → 第一个视频全屏自动播放
