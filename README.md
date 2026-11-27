@@ -1,5 +1,32 @@
 # 西瓜视频 TV 版（第三方）— Kotlin 工程
 
+## 体积优化 & CI 构建（最新）
+
+Release 已启用 R8 代码压缩 + 资源收缩 + ARM ABI 过滤，剔除 HLS/DASH 与 debug tooling，
+**APK 体积从 16MB（debug）降至约 2.1MB（-87%）**，dex 由 8 个合并为 1 个。
+
+### GitHub Actions 自动构建
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) 支持两种模式：
+
+| 情形 | 行为 |
+|---|---|
+| **配置了签名 secrets** | 编译并签名 release，产物 `xigua-tv-*-signed.apk` |
+| **未配置签名 secrets** | 编译无签名 release，产物 `xigua-tv-*-unsigned.apk` |
+
+触发方式：推送 `v*` 标签，或在 Actions 页手动 `workflow_dispatch`。产物同时上传为 Artifact 并创建 Release。
+
+需要签名时在仓库 Settings → Secrets and variables → Actions 配置：
+
+| Secret | 说明 |
+|---|---|
+| `SIGNING_KEYSTORE_BASE64` | keystore 文件的 base64 编码（`base64 -w0 release.jks`） |
+| `SIGNING_STORE_PASSWORD` | keystore 密码 |
+| `SIGNING_KEY_ALIAS` | key 别名 |
+| `SIGNING_KEY_PASSWORD` | key 密码 |
+
+本地构建：`./gradlew assembleRelease`（无签名）或设置上述 4 个环境变量后构建签名版。
+
 ## 当前进度：第六步 · 播放设置（清晰度/倍速/自动连播）（已完成）
 
 基于第一步验证的解析链路（抖音移动 Feed 接口，免签名/免 Cookie），搭建 Android TV 工程并实现单视频播放。

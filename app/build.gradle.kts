@@ -16,12 +16,53 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0-mvp"
+
+        // 精简：TV/盒子只保留 ARM 架构，剔除 x86/x86_64
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    // 签名可选：仅当环境变量提供了 keystore 文件才启用。
+    // CI 里从 secrets 解码 keystore 后设置这些环境变量；本地直接 assembleRelease 则产出无签名包。
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("SIGNING_KEYSTORE_FILE")
+            val ksFile = if (!ksPath.isNullOrBlank()) file(ksPath) else null
+            if (ksFile != null && ksFile.exists()) {
+                storeFile = ksFile
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // 精简核心：R8 代码压缩 + 资源收缩
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // 有 keystore 才签名，否则产出 unsigned release
+            val ksPath = System.getenv("SIGNING_KEYSTORE_FILE")
+            if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+
+    // 精简：release 不打包 debug 专用信息
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/*.kotlin_module",
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "DebugProbesKt.bin",
+            )
         }
     }
 
@@ -45,15 +86,15 @@ dependencies {
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    // 精简：tooling-preview 仅调试需要，移入 debug 变体
+    debugImplementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Media3 ExoPlayer
+    // Media3 ExoPlayer —— 实测 Feed 直链均为 MP4，不引入 HLS/DASH 以减小体积
     val media3Version = "1.4.1"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-ui:$media3Version")
-    implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")
 
     // 网络: OkHttp + Kotlinx Serialization
