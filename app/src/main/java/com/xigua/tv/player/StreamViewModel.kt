@@ -10,6 +10,7 @@ import com.xigua.tv.data.FeedRepository
 import com.xigua.tv.data.VideoInfo
 import com.xigua.tv.data.history.WatchHistory
 import com.xigua.tv.data.history.AppDatabase
+import com.xigua.tv.data.settings.SettingsRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,11 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
 
     private val repository = FeedRepository()
     private val historyDao = AppDatabase.get(application).watchHistoryDao()
+    private val settingsRepo = SettingsRepository.get(application)
+
+    /** 当前播放设置（DataStore 收集） */
+    private var currentSettings = SettingsRepository.Settings()
+    private var settingsJob: Job? = null
 
     private val _uiState = MutableStateFlow<StreamUiState>(StreamUiState.Loading)
     val uiState: StateFlow<StreamUiState> = _uiState.asStateFlow()
@@ -66,10 +72,23 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
 
     val exoPlayer: ExoPlayer by lazy {
         ExoPlayer.Builder(application).build().apply {
-            repeatMode = Player.REPEAT_MODE_ONE
             addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
                     _isPlaying.value = playing
+                }
+
+                /** 自动连播：当前视频播完切到下一个（REPEAT_MODE_OFF 时触发） */
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_ENDED && currentSettings.autoNext) {
+                        val list = (uiState.value as? StreamUiState.Ready)?.videos ?: return
+                        val next = _currentIndex.value + 1
+                        if (next < list.size) {
+                            onPageChanged(next)
+                        } else {
+                            // 流末尾：先加载更多，加载后再切（下方 loadMore 会扩展列表）
+                            loadMore(thenPlayIndex = next)
+                        }
+                    }
                 }
             })
         }
@@ -78,6 +97,32 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
     init {
         loadInitial()
         startProgressSaver()
+        collectSettings()
+    }
+
+    /** 收集设置变更并即时应用到播放器 */
+    private fun collectSettings() {
+        settingsJob?.cancel()
+        settingsJob = viewModelScope.launch {
+            settingsRepo.settingsFlow.collect { settings ->
+                val qualityChanged = settings.qualityMode != currentSettings.qualityMode
+                currentSettings = settings
+                // 倍速即时生效
+                exoPlayer.setPlaybackParameters(
+                    androidx.media3.common.PlaybackParameters(settings.speed)
+                )
+                // 自动连播：开=不循环(播完切下一个)，关=单集循环
+                exoPlayer.repeatMode = if (settings.autoNext) {
+                    Player.REPEAT_MODE_OFF
+                } else {
+                    Player.REPEAT_MODE_ONE
+                }
+                // 清晰度变更：重新加载当前视频
+                if (qualityChanged && uiState.value is StreamUiState.Ready) {
+                    playAt(_currentIndex.value)
+                }
+            }
+        }
     }
 
     /** 首次加载 */
@@ -120,7 +165,9 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
             // 补充窗口：移除已播的第一个，追加新的下一个
             exoPlayer.removeMediaItem(0)
             if (index + 1 < list.size) {
-                exoPlayer.addMediaItem(MediaItem.fromUri(list[index + 1].bestPlayUrl() ?: ""))
+                exoPlayer.addMediaItem(
+                    MediaItem.fromUri(list[index + 1].playUrlFor(currentSettings.qualityMode) ?: "")
+                )
             }
             applyResumePosition(list[index])
         } else {
@@ -132,13 +179,14 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         if (index >= list.size - 2) loadMore()
     }
 
-    /** 重建播放队列并播放指定位置（带续播） */
+    /** 重建播放队列并播放指定位置（带续播 + 清晰度偏好） */
     private fun playAt(index: Int) {
         val list = (uiState.value as? StreamUiState.Ready)?.videos ?: return
+        val mode = currentSettings.qualityMode
         val items = mutableListOf<MediaItem>()
-        list.getOrNull(index)?.bestPlayUrl()?.let { items.add(MediaItem.fromUri(it)) }
+        list.getOrNull(index)?.playUrlFor(mode)?.let { items.add(MediaItem.fromUri(it)) }
         // 预加载下一个
-        list.getOrNull(index + 1)?.bestPlayUrl()?.let { items.add(MediaItem.fromUri(it)) }
+        list.getOrNull(index + 1)?.playUrlFor(mode)?.let { items.add(MediaItem.fromUri(it)) }
         if (items.isEmpty()) return
 
         exoPlayer.setMediaItems(items, 0, 0L)
@@ -244,12 +292,18 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun loadMore() {
+    private fun loadMore(thenPlayIndex: Int? = null) {
         viewModelScope.launch {
             val result = repository.loadMore()
             result.fold(
                 onSuccess = { added ->
-                    if (added > 0) _uiState.value = StreamUiState.Ready(repository.currentList())
+                    if (added > 0) {
+                        _uiState.value = StreamUiState.Ready(repository.currentList())
+                        // 自动连播到流末尾后，加载成功则切到下一个
+                        if (thenPlayIndex != null && thenPlayIndex < repository.currentList().size) {
+                            onPageChanged(thenPlayIndex)
+                        }
+                    }
                 },
                 onFailure = { /* 不影响当前播放 */ },
             )
@@ -277,6 +331,7 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         progressJob?.cancel()
+        settingsJob?.cancel()
         saveProgressNow()
         exoPlayer.release()
         super.onCleared()

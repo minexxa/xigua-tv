@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.xigua.tv.data.history.AppDatabase
 import com.xigua.tv.data.history.WatchHistory
+import com.xigua.tv.data.settings.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +20,14 @@ import kotlinx.coroutines.launch
 class MyViewModel(application: Application) : AndroidViewModel(application) {
 
     private val dao = AppDatabase.get(application).watchHistoryDao()
+    private val settingsRepo = SettingsRepository.get(application)
+
+    /** 播放设置（供设置页读写） */
+    val settings = settingsRepo.settingsFlow
+
+    fun setQualityMode(mode: Int) { viewModelScope.launch { settingsRepo.setQualityMode(mode) } }
+    fun setSpeed(speed: Float) { viewModelScope.launch { settingsRepo.setSpeed(speed) } }
+    fun setAutoNext(enabled: Boolean) { viewModelScope.launch { settingsRepo.setAutoNext(enabled) } }
 
     private val _history = MutableStateFlow<List<WatchHistory>>(emptyList())
     val history: StateFlow<List<WatchHistory>> = _history.asStateFlow()

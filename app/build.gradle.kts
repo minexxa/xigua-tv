@@ -72,4 +72,7 @@ dependencies {
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
+
+    // DataStore 播放设置持久化（1.0.0 为纯 JVM artifact，1.1.x 迁移 KMP 后 Android API 需 -android 变体）
+    implementation("androidx.datastore:datastore-preferences:1.0.0")
 }

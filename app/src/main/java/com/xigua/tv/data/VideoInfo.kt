@@ -26,6 +26,27 @@ data class VideoInfo(
     /** 取最高清晰度的播放地址（width 最大），无则回退 playUrl */
     fun bestPlayUrl(): String? =
         qualities.maxByOrNull { it.width }?.url ?: playUrl
+
+    /**
+     * 按清晰度偏好选播放地址（第六步：手动选清晰度）。
+     * @param mode 0=自动(最高) 1=1080P 2=720P 3=480P 4=360P
+     */
+    fun playUrlFor(mode: Int): String? {
+        if (mode <= 0 || qualities.isEmpty()) return bestPlayUrl()
+        val targetWidth = when (mode) {
+            1 -> 1920
+            2 -> 1280
+            3 -> 854
+            4 -> 640
+            else -> Int.MAX_VALUE
+        }
+        // 选不超过目标宽度中最高的一档；若全都超过目标则取最小的一档
+        val candidate = qualities.filter { it.width > 0 && it.url.isNotBlank() }
+            .filter { it.width <= targetWidth }
+            .maxByOrNull { it.width }
+            ?: qualities.filter { it.url.isNotBlank() }.minByOrNull { it.width }
+        return candidate?.url ?: bestPlayUrl()
+    }
 }
 
 @Serializable
