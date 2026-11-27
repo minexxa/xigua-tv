@@ -266,13 +266,13 @@ private fun SettingsContent(
             selected = selected == 2,
         )
         SettingRow(
-            label = "仅横屏视频",
-            value = if (settings.landscapeOnly) "开（过滤竖屏，适合TV）" else "关（含竖屏）",
+            label = "影视横屏优先",
+            value = if (settings.landscapeOnly) "开（横屏影视长视频排前面）" else "关（默认推荐流）",
             selected = selected == 3,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "清晰度：选择后当前视频自动重新加载\n倍速：播放在线生效\n自动连播：关闭则单个视频循环播放\n仅横屏：开启后优先推荐横屏，切换时重建视频流",
+            text = "清晰度：选择后当前视频自动重新加载\n倍速：播放在线生效\n自动连播：关闭则单个视频循环播放\n影视横屏优先：按「横屏+长视频+影视解说」加权排序，把稀少的横屏影视内容捞到前面（切换时重建视频流）",
             color = Color(0xFF666666),
             fontSize = 13.sp,
             lineHeight = 22.sp,

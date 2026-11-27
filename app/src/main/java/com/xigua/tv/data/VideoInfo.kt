@@ -23,6 +23,40 @@ data class VideoInfo(
     /** 是否横屏视频（TV 上需要不同的布局策略） */
     val isLandscape: Boolean get() = width >= height
 
+    /**
+     * TV 场景内容偏好评分：越高越适合 TV 大屏连续观看。
+     * 用于「影视横屏优先」模式下对 Feed 流排序——把稀疏的横屏影视长视频
+     * 从大量竖屏短视频里捞到前面（Feed 接口本身不支持服务端过滤）。
+     *
+     * 加分项：
+     *  - 横屏 +4
+     *  - 时长 >60s +2；>180s 再 +1
+     *  - 标题命中影视解说关键词 +2
+     */
+    fun tvScore(): Int {
+        var score = 0
+        if (isLandscape) score += 4
+        val seconds = durationMs / 1000
+        if (seconds > 60) score += 2
+        if (seconds > 180) score += 1
+        if (isFilmContent()) score += 2
+        return score
+    }
+
+    /** 标题是否命中影视/解说类关键词 */
+    private fun isFilmContent(): Boolean {
+        val lower = title.lowercase()
+        return FILM_KEYWORDS.any { lower.contains(it) }
+    }
+
+    companion object {
+        private val FILM_KEYWORDS = listOf(
+            "解说", "一口气看完", "看完", "电影", "影视", "电视剧", "剧场", "剧集",
+            "剧情", "悬疑", "结局", "速看", "分钟看", "经典", "大片", "预告片",
+            "宅家", "观影", "说电影", "讲电影", "纪录片", "真人电影",
+        )
+    }
+
     /** 取最高清晰度的播放地址（width 最大），无则回退 playUrl */
     fun bestPlayUrl(): String? =
         qualities.maxByOrNull { it.width }?.url ?: playUrl

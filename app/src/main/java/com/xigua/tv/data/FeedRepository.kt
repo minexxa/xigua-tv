@@ -9,8 +9,8 @@ import kotlinx.coroutines.withContext
  * 职责：
  *  1. 分页拉取推荐流，按 awemeId 去重累积（Feed 接口每次返回有重复）
  *  2. 维护已加载视频列表，供沉浸式流上下切换
- *  3. 当Buffer快见底时加载下一批
- *  4. TV 场景优先横屏视频（可开关）：多轮拉取补足，避免过滤后列表为空
+ *  3. 影视横屏优先（可开关）：服务端不支持过滤，端上多轮拉候选池 + 加权评分，
+ *     把稀疏的横屏影视长视频捞到前面
  *
  * 播放地址已在 VideoInfo 中（Feed 接口一次性返回），无需二次解析，
  * 因此"预加载"在 ViewModel 层通过提前 prepare MediaItem 实现。
@@ -22,9 +22,14 @@ class FeedRepository(private val api: FeedApi = FeedApi()) {
     private var isLoading = false
 
     /**
-     * 是否仅保留横屏视频（TV 大屏优化）。
-     * 注意：实测推荐流竖屏占绝大多数（横屏稀少且时段性出现），强制仅横屏会拉长加载时间，
-     * 因此默认关闭；用户在「我的→设置」手动开启后会优先横屏、拉不到才用竖屏兜底。
+     * 影视横屏优先模式（TV 大屏优化）。
+     *
+     * 实测 Feed 接口不支持服务端过滤（channel_id/source/is_long_video 参数均无效），
+     * 横屏影视长视频约占 20~25%。开启后采用「候选池 + tvScore 加权排序」：
+     * 一次性拉多轮攒够候选，按评分降序投放，横屏影视长视频优先入流，
+     * 竖屏短视频沉底兜底，避免过滤后列表为空。
+     *
+     * 默认关闭；用户在「我的 → 设置」手动开启。
      */
     var landscapeOnly: Boolean = false
 
@@ -36,44 +41,59 @@ class FeedRepository(private val api: FeedApi = FeedApi()) {
 
     /**
      * 加载更多视频（追加到列表尾部）。
-     * @param targetCount 期望本次新增数量
-     * 开启 landscapeOnly 时，单批过滤后横屏可能不足，会在同一锁内多拉几轮补足；
-     * 竖屏候选暂存，仅在反复拉不到横屏时兜底加入，保证不会把流拉空。
+     *
+     * 开启 landscapeOnly 时：
+     *  - 多轮拉取攒候选池（去重），按 tvScore 降序排序
+     *  - 优先投放高分（横屏/长视频/影视解说），低分沉底
+     *  - 分数并列时用随机数打散，避免每次都是同一批
      * @return 本次新增的视频数量
      */
     suspend fun loadMore(targetCount: Int = 5): Result<Int> = withContext(Dispatchers.IO) {
         if (isLoading) return@withContext Result.success(0)
         isLoading = true
         try {
-            var added = 0
-            val portraitBackup = mutableListOf<VideoInfo>()
-            // 多拉一些，因为 Feed 接口有重复 + 竖屏要过滤
-            val perFetch = (targetCount * 3).coerceAtLeast(12)
-            val maxRounds = 4 // 最多拉取轮数，避免无限请求
-
-            var round = 0
-            while (added < targetCount && round < maxRounds) {
-                round++
-                val result = api.getFeed(count = perFetch)
-                val batch = result.getOrNull() ?: continue
-                for (video in batch) {
-                    if (video.awemeId.isBlank() || !seenIds.add(video.awemeId)) continue
-                    if (!landscapeOnly || video.isLandscape) {
+            if (!landscapeOnly) {
+                // 关闭模式：按 Feed 原顺序拉取，仅去重
+                var added = 0
+                var round = 0
+                while (added < targetCount && round < 3) {
+                    round++
+                    val batch = api.getFeed(count = targetCount * 2).getOrNull() ?: continue
+                    for (video in batch) {
+                        if (video.awemeId.isBlank() || !seenIds.add(video.awemeId)) continue
                         videos.add(video)
                         added++
-                    } else {
-                        portraitBackup.add(video)
+                        if (added >= targetCount) break
                     }
+                }
+                return@withContext Result.success(added)
+            }
+
+            // 开启模式：多轮拉候选池 + 加权排序
+            val candidates = mutableSetOf<VideoInfo>()
+            val rounds = 6
+            repeat(rounds) {
+                val batch = api.getFeed(count = 10).getOrNull() ?: return@repeat
+                for (video in batch) {
+                    if (video.awemeId.isBlank() || video.awemeId in seenIds) continue
+                    candidates.add(video)
                 }
             }
 
-            // 兜底：反复拉取后横屏仍不足，用竖屏补足，避免流为空
-            if (added < targetCount && portraitBackup.isNotEmpty()) {
-                for (video in portraitBackup) {
-                    if (added >= targetCount) break
-                    videos.add(video)
-                    added++
-                }
+            if (candidates.isEmpty()) return@withContext Result.success(0)
+
+            // 按分数降序；同分随机打散，避免重复内容固定在头部
+            val sorted = candidates.sortedWith(
+                compareByDescending<VideoInfo> { it.tvScore() }
+                    .thenBy { kotlin.random.Random.nextInt() }
+            )
+
+            var added = 0
+            for (video in sorted) {
+                if (added >= targetCount) break
+                if (!seenIds.add(video.awemeId)) continue
+                videos.add(video)
+                added++
             }
             Result.success(added)
         } finally {
