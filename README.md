@@ -1,6 +1,6 @@
 # 西瓜视频 TV 版（第三方）— Kotlin 工程
 
-## 当前进度：第四步 · 预加载 + 观看进度记忆（已完成）
+## 当前进度：第五步 · 我的页（观看历史 + 收藏）（已完成）
 
 基于第一步验证的解析链路（抖音移动 Feed 接口，免签名/免 Cookie），搭建 Android TV 工程并实现单视频播放。
 
@@ -27,16 +27,18 @@ app/src/main/java/com/xigua/tv/
 │   ├── VideoInfo.kt             # 统一视频模型（含清晰度/横竖屏判断）
 │   ├── FeedApi.kt               # Feed 接口封装（多端点容灾 + JSON 解析）
 │   ├── FeedRepository.kt        # 分页加载 + 去重累积
-│   └── history/                 # Room 观看历史（第四步新增）
-│       ├── WatchHistory.kt      # 实体：进度/时长/观看时间
-│       ├── WatchHistoryDao.kt   # DAO：保存/查询/续播位置
-│       └── AppDatabase.kt       # 数据库单例
+│   └── history/                 # Room 观看历史 + 收藏
+│       ├── WatchHistory.kt      # 实体：进度/时长/观看时间/isFavorite
+│       ├── WatchHistoryDao.kt   # DAO：保存/查询/续播/收藏/删除
+│       └── AppDatabase.kt       # 数据库单例（v2）
 ├── player/
 │   ├── PlayerViewModel.kt       # 单视频播放（第二步，保留作参考）
-│   └── StreamViewModel.kt       # 视频流：滑动窗口预加载 + 无限流 + 进度记忆
+│   ├── StreamViewModel.kt       # 视频流：预加载 + 无限流 + 进度记忆 + 收藏
+│   └── MyViewModel.kt           # 我的页：历史/收藏列表 + Tab + 删除（第五步）
 ├── ui/
 │   ├── PlayerScreen.kt          # 单视频界面（第二步，保留作参考）
 │   ├── StreamScreen.kt          # 沉浸式流：VerticalPager + 封面占位 + 续播提示
+│   ├── MyScreen.kt              # 我的页：三列焦点网格 + 进度条（第五步）
 │   └── theme/Theme.kt
 └── res/                         # Manifest / TV banner / launcher icon
 ```
@@ -48,8 +50,20 @@ app/src/main/java/com/xigua/tv/
 | 上 / 下 | VerticalPager 切换视频，自动播放 |
 | OK / 中心键 | 暂停/播放 + 显示/隐藏信息浮层；错误态重试 |
 | 左 / 右 | 快退 / 快进 10 秒 |
+| 菜单键 (MENU) | 收藏/取消收藏当前视频（居中 Toast 提示） |
+| GUIDE / F 键 | 进入「我的」页 |
 
 启动后自动加载推荐流并播放第一个视频；滑到倒数第 2 个时自动加载下一批（无限流）。
+
+**「我的」页遥控器：**
+
+| 按键 | 行为 |
+|---|---|
+| 上 / 下 | 列表项间移动（三列网格，±3） |
+| 左 / 右 | 切换 Tab（观看历史 / 我的收藏） |
+| OK / 中心键 | 播放选中视频（按 ID 重新解析直链后播放） |
+| 删除键 (DEL) | 删除选中记录 |
+| 返回键 | 回到视频流 |
 
 ## 编译
 
@@ -105,9 +119,17 @@ tv-material 留到后续做频道导航/信息流卡片时再引入（届时统�
 - **进度保存**：每 3 秒 + 切换前 + 暂停时 + onCleared 时保存
 - **看完判定**：进度 ≥95% 视为看完，下次从 0 播
 
+## 我的页实现（第五步）
+
+- **数据源**：复用 Room 的 `watch_history` 表，`isFavorite=true` 即收藏，无需新建表
+- **收藏持久化**：进度保存时读取并保留 `isFavorite`，避免 REPLACE 覆盖收藏标记（这是关键 bug 点）
+- **从列表播放**：历史/收藏项只存 `awemeId`（直链有时效不落库），点播时调 `FeedApi.resolveVideo(id)` 重新解析 → `prepend` 到流首位 → 播放
+- **数据库迁移**：版本 v1→v2，`fallbackToDestructiveMigration()`（全新安装策略，符合项目习惯）
+- **导航**：MainActivity 用状态切换 Stream / My 两个 Composable，My 页接 `BackHandler`
+
 ## 下一步候选
 
-- 观看历史列表页（Room 已有数据，加个 TV 界面展示）
 - 频道分类导航（引入 tv-material）
 - 搜索
-- 收藏 / 点赞
+- 点赞 / 作者主页
+- 清晰度手动选择设置
