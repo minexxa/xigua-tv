@@ -22,17 +22,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android platform 35 / build-tools
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
@@ -91,30 +88,12 @@ jobs:
           APK="${{ steps.apk.outputs.path }}"
           $ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner verify --verbose "$APK" || true
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.apk.outputs.name }}
-          path: ${{ steps.apk.outputs.path }}
-          if-no-files-found: error
+      
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.upload_release)
+        #if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.upload_release)
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: test
           files: ${{ steps.apk.outputs.path }}
-          generate_release_notes: true
-          body: |
-            ## 西瓜视频 TV 版（第三方）
-
-            APK 类型：${{ steps.signing.outputs.available == 'true' && '✅ 已签名' || '⚠️ 无签名（需在设备上关闭签名校验或使用相同签名覆盖）' }}
-
-            ### 安装
-            直接下载 APK 安装到 Android TV / 盒子。若无签名，部分设备需先卸载旧版。
-
-            ### 遥控器
-            - 上/下：切换视频
-            - OK：暂停/显示信息
-            - 左/右：快进快退
-            - 菜单键：收藏
-            - GUIDE/F：进入「我的」
+          
