@@ -28,6 +28,7 @@ class MyViewModel(application: Application) : AndroidViewModel(application) {
     fun setQualityMode(mode: Int) { viewModelScope.launch { settingsRepo.setQualityMode(mode) } }
     fun setSpeed(speed: Float) { viewModelScope.launch { settingsRepo.setSpeed(speed) } }
     fun setAutoNext(enabled: Boolean) { viewModelScope.launch { settingsRepo.setAutoNext(enabled) } }
+    fun setLandscapeOnly(enabled: Boolean) { viewModelScope.launch { settingsRepo.setLandscapeOnly(enabled) } }
 
     private val _history = MutableStateFlow<List<WatchHistory>>(emptyList())
     val history: StateFlow<List<WatchHistory>> = _history.asStateFlow()

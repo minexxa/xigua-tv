@@ -63,7 +63,15 @@ class FeedApi {
     /** 获取推荐信息流 */
     suspend fun getFeed(count: Int = 5): Result<List<VideoInfo>> = withContext(Dispatchers.IO) {
         try {
-            val data = requestFeed(mapOf("count" to count.toString(), "refresh_type" to "1"))
+            // 加随机 ticket，让每次拉取返回不同批次（否则接口可能总返回同一批竖屏）
+            val ticket = kotlin.math.abs(kotlin.random.Random.nextLong()).toString()
+            val data = requestFeed(
+                mapOf(
+                    "count" to count.toString(),
+                    "refresh_type" to "1",
+                    "_ticket" to ticket,
+                )
+            )
                 ?: return@withContext Result.failure(Exception("Feed 接口无响应"))
 
             val list = data["aweme_list"]?.jsonArray ?: jsonArrayOf()

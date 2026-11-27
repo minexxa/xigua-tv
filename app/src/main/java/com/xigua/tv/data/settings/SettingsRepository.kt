@@ -26,6 +26,7 @@ class SettingsRepository(private val context: Context) {
         private val KEY_QUALITY = intPreferencesKey("quality_mode")
         private val KEY_SPEED = floatPreferencesKey("playback_speed")
         private val KEY_AUTO_NEXT = androidx.datastore.preferences.core.booleanPreferencesKey("auto_next")
+        private val KEY_LANDSCAPE_ONLY = androidx.datastore.preferences.core.booleanPreferencesKey("landscape_only")
 
         val SPEEDS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
         val QUALITY_LABELS = listOf("自动(最高)", "1080P", "720P", "480P", "360P")
@@ -41,6 +42,7 @@ class SettingsRepository(private val context: Context) {
         val qualityMode: Int = 0,
         val speed: Float = 1.0f,
         val autoNext: Boolean = true,
+        val landscapeOnly: Boolean = false,
     )
 
     val settingsFlow: Flow<Settings> = context.settingsDataStore.data.map { prefs ->
@@ -48,6 +50,7 @@ class SettingsRepository(private val context: Context) {
             qualityMode = prefs[KEY_QUALITY] ?: 0,
             speed = prefs[KEY_SPEED] ?: 1.0f,
             autoNext = prefs[KEY_AUTO_NEXT] ?: true,
+            landscapeOnly = prefs[KEY_LANDSCAPE_ONLY] ?: false,
         )
     }
 
@@ -61,5 +64,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAutoNext(enabled: Boolean) {
         context.settingsDataStore.edit { it[KEY_AUTO_NEXT] = enabled }
+    }
+
+    suspend fun setLandscapeOnly(enabled: Boolean) {
+        context.settingsDataStore.edit { it[KEY_LANDSCAPE_ONLY] = enabled }
     }
 }

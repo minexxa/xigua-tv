@@ -79,7 +79,7 @@ fun MyScreen(
     val focusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
     var selected by remember { mutableIntStateOf(0) }
-    // 设置页当前选中项：0=清晰度 1=倍速 2=自动连播
+    // 设置页当前选中项：0=清晰度 1=倍速 2=自动连播 3=仅横屏
     var settingSelected by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
@@ -94,7 +94,7 @@ fun MyScreen(
     }
 
     // 设置项当前值与可选数量
-    val settingCount = 3
+    val settingCount = 4
     val qualityCount = SettingsRepository.QUALITY_LABELS.size
     val speedCount = SettingsRepository.SPEEDS.size
     val currentQuality = settings.qualityMode.coerceIn(0, qualityCount - 1)
@@ -126,6 +126,7 @@ fun MyScreen(
                                 0 -> viewModel.setQualityMode((currentQuality - 1).coerceAtLeast(0))
                                 1 -> viewModel.setSpeed(SettingsRepository.SPEEDS[(currentSpeedIdx - 1).coerceAtLeast(0)])
                                 2 -> viewModel.setAutoNext(!settings.autoNext)
+                                3 -> viewModel.setLandscapeOnly(!settings.landscapeOnly)
                             }
                         } else {
                             viewModel.setTab((tab - 1).coerceAtLeast(0)); selected = 0
@@ -139,6 +140,7 @@ fun MyScreen(
                                 0 -> viewModel.setQualityMode((currentQuality + 1).coerceAtMost(qualityCount - 1))
                                 1 -> viewModel.setSpeed(SettingsRepository.SPEEDS[(currentSpeedIdx + 1).coerceAtMost(speedCount - 1)])
                                 2 -> viewModel.setAutoNext(!settings.autoNext)
+                                3 -> viewModel.setLandscapeOnly(!settings.landscapeOnly)
                             }
                         } else {
                             viewModel.setTab((tab + 1).coerceAtMost(2)); selected = 0
@@ -152,6 +154,7 @@ fun MyScreen(
                                 0 -> viewModel.setQualityMode((currentQuality + 1) % qualityCount)
                                 1 -> viewModel.setSpeed(SettingsRepository.SPEEDS[(currentSpeedIdx + 1) % speedCount])
                                 2 -> viewModel.setAutoNext(!settings.autoNext)
+                                3 -> viewModel.setLandscapeOnly(!settings.landscapeOnly)
                             }
                         }
                         true
@@ -262,9 +265,14 @@ private fun SettingsContent(
             value = if (settings.autoNext) "开（播完切下一个）" else "关（单集循环）",
             selected = selected == 2,
         )
+        SettingRow(
+            label = "仅横屏视频",
+            value = if (settings.landscapeOnly) "开（过滤竖屏，适合TV）" else "关（含竖屏）",
+            selected = selected == 3,
+        )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "清晰度：选择后当前视频自动重新加载\n倍速：播放在线生效\n自动连播：关闭则单个视频循环播放",
+            text = "清晰度：选择后当前视频自动重新加载\n倍速：播放在线生效\n自动连播：关闭则单个视频循环播放\n仅横屏：开启后优先推荐横屏，切换时重建视频流",
             color = Color(0xFF666666),
             fontSize = 13.sp,
             lineHeight = 22.sp,

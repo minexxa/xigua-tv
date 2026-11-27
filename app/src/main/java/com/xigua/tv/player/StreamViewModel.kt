@@ -47,6 +47,8 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
     /** 当前播放设置（DataStore 收集） */
     private var currentSettings = SettingsRepository.Settings()
     private var settingsJob: Job? = null
+    /** 上一次的横屏过滤偏好，用于检测变化后重建流 */
+    private var lastLandscapeOnly: Boolean? = null
 
     private val _uiState = MutableStateFlow<StreamUiState>(StreamUiState.Loading)
     val uiState: StateFlow<StreamUiState> = _uiState.asStateFlow()
@@ -106,7 +108,15 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         settingsJob = viewModelScope.launch {
             settingsRepo.settingsFlow.collect { settings ->
                 val qualityChanged = settings.qualityMode != currentSettings.qualityMode
+                val isFirstCollect = lastLandscapeOnly == null
+                val landscapeChanged = !isFirstCollect &&
+                    lastLandscapeOnly != settings.landscapeOnly
+                lastLandscapeOnly = settings.landscapeOnly
                 currentSettings = settings
+                // 横屏过滤偏好应用到仓库。首次收集若偏好与仓库默认不同，需重建流以生效
+                val prefMismatchOnStart = isFirstCollect &&
+                    repository.landscapeOnly != settings.landscapeOnly
+                repository.landscapeOnly = settings.landscapeOnly
                 // 倍速即时生效
                 exoPlayer.setPlaybackParameters(
                     androidx.media3.common.PlaybackParameters(settings.speed)
@@ -120,6 +130,10 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
                 // 清晰度变更：重新加载当前视频
                 if (qualityChanged && uiState.value is StreamUiState.Ready) {
                     playAt(_currentIndex.value)
+                }
+                // 横屏过滤开关变更（含首次偏好不一致）：重建流
+                if (landscapeChanged || prefMismatchOnStart) {
+                    loadInitial()
                 }
             }
         }
