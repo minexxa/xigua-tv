@@ -1,6 +1,6 @@
 # 西瓜视频 TV 版（第三方）— Kotlin 工程
 
-## 当前进度：第二步 · 单视频播放验证
+## 当前进度：第三步 · 沉浸式短视频流（已完成）
 
 基于第一步验证的解析链路（抖音移动 Feed 接口，免签名/免 Cookie），搭建 Android TV 工程并实现单视频播放。
 
@@ -25,22 +25,27 @@ app/src/main/java/com/xigua/tv/
 ├── MainActivity.kt              # 入口
 ├── data/
 │   ├── VideoInfo.kt             # 统一视频模型（含清晰度/横竖屏判断）
-│   └── FeedApi.kt               # Feed 接口封装（多端点容灾 + JSON 解析）
+│   ├── FeedApi.kt               # Feed 接口封装（多端点容灾 + JSON 解析）
+│   └── FeedRepository.kt        # 分页加载 + 去重累积（第三步新增）
 ├── player/
-│   └── PlayerViewModel.kt       # ExoPlayer 持有 + 播放控制 + UI 状态
+│   ├── PlayerViewModel.kt       # 单视频播放（第二步，保留作参考）
+│   └── StreamViewModel.kt       # 视频流：单播放器复用 + index切换 + 无限流（第三步）
 ├── ui/
-│   ├── PlayerScreen.kt          # 全屏播放 + 遥控器按键 + 信息浮层
+│   ├── PlayerScreen.kt          # 单视频界面（第二步，保留作参考）
+│   ├── StreamScreen.kt          # 沉浸式流：VerticalPager + 封面占位 + 信息浮层（第三步）
 │   └── theme/Theme.kt
 └── res/                         # Manifest / TV banner / launcher icon
 ```
 
-## 遥控器操作（MVP）
+## 遥控器操作（第三步沉浸式流）
 
 | 按键 | 行为 |
 |---|---|
-| OK / 中心键 | Idle 时加载测试视频；播放时暂停/切换控制条 |
+| 上 / 下 | VerticalPager 切换视频，自动播放 |
+| OK / 中心键 | 暂停/播放 + 显示/隐藏信息浮层；错误态重试 |
 | 左 / 右 | 快退 / 快进 10 秒 |
-| 上 / 下 | 预留给第三步视频流切换 |
+
+启动后自动加载推荐流并播放第一个视频；滑到倒数第 2 个时自动加载下一批（无限流）。
 
 ## 编译
 
@@ -59,24 +64,36 @@ app/build/outputs/apk/debug/app-debug.apk
 > 本次已在沙箱内实测编译通过（`BUILD SUCCESSFUL`），并验证了 APK 签名与 Leanback TV 声明。
 > 工程使用腾讯云/阿里云 Maven 镜像加速依赖下载（`settings.gradle.kts`），国内网络可直接编译。
 
-## 验证要点
+## 验证要点（第三步）
 
-1. 首屏显示「按 OK 播放测试视频」，测试 ID `7676450021063735414`
-2. 按 OK 触发解析 → ExoPlayer 加载最高清晰度直链 → 自动播放
-3. 播放中按 OK 暂停/恢复 + 显示标题/作者浮层
-4. 左右键快进快退
+1. 启动后自动加载推荐流 → 第一个视频全屏自动播放
+2. 按遥控器下键 → 切到下一个视频并播放（封面占位 → 播放）
+3. 按 OK → 暂停并显示标题/作者/清晰度浮层；再按 OK 恢复
+4. 左右键快进快退 10 秒
+5. 连续下滑到倒数第 2 个 → 自动追加下一批（无限流）
 
 ## 与第一步脚本的对应关系
 
 | Python 脚本 | Kotlin 实现 |
 |---|---|
 | `resolve_feed()` / `_feed_request()` | `FeedApi.resolveVideo()` / `requestFeed()` |
+| `get_feed()` | `FeedApi.getFeed()` + `FeedRepository.loadMore()` |
 | `_parse_aweme()` | `FeedApi.parseAweme()` |
 | `VideoInfo` 字典 | `VideoInfo` data class |
 | `bestPlayUrl` 逻辑 | `VideoInfo.bestPlayUrl()` |
 
-## 下一步（第三步）
+## 关于 Compose for TV 的说明
 
-- 引入 Compose for TV，实现上下键切换的沉浸式视频流
-- 预加载下一视频（播放到 50% 时解析）
-- Room 历史记录
+第三步的沉浸式全屏流场景**未引入 tv-material**：
+- 全屏单视频流用不到它的卡片/导航组件
+- tv-material 1.1.0 依赖 Compose 1.10.3，与当前 BOM（1.7.x）冲突
+- 用 foundation 1.7.3 的 `VerticalPager` + `onKeyEvent` 实现，已编译验证
+
+tv-material 留到后续做频道导航/信息流卡片时再引入（届时统一升级 BOM）。
+
+## 下一步（第四步候选）
+
+- Room 观看历史 + 续播
+- 频道分类导航（引入 tv-material）
+- 搜索
+- 播放到 50% 预加载下一个 MediaItem（进一步降低切换延迟）
