@@ -61,6 +61,7 @@ fun StreamScreen(viewModel: StreamViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val currentIndex by viewModel.currentIndex.collectAsState()
     val controlsVisible by viewModel.controlsVisible.collectAsState()
+    val resumedFrom by viewModel.resumedFrom.collectAsState()
     val focusRequester = remember { FocusRequester() }
 
     Box(
@@ -112,6 +113,24 @@ fun StreamScreen(viewModel: StreamViewModel) {
                     viewModel = viewModel,
                     onPageChanged = { viewModel.onPageChanged(it) },
                 )
+                // 续播提示（顶部，命中历史进度时短暂显示）
+                if (resumedFrom > 0L) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .background(Color(0x99000000))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "继续上次观看 ${resumedFrom / 1000} 秒",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                        )
+                    }
+                }
+
                 // 信息浮层（全屏，不随 pager 滚动）
                 if (controlsVisible) {
                     viewModel.currentVideo?.let { StreamInfoOverlay(it) }

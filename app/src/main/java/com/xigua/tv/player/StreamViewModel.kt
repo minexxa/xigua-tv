@@ -8,9 +8,14 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.xigua.tv.data.FeedRepository
 import com.xigua.tv.data.VideoInfo
+import com.xigua.tv.data.history.WatchHistory
+import com.xigua.tv.data.history.AppDatabase
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** 视频流 UI 状态 */
@@ -21,16 +26,21 @@ sealed interface StreamUiState {
 }
 
 /**
- * 沉浸式视频流 ViewModel。
+ * 沉浸式视频流 ViewModel（第四步：预加载 + 续播）。
  *
- * 关键设计：
- *  - 单 ExoPlayer 实例复用，切换视频只换 MediaItem（省内存，TV 盒子友好）
- *  - 当前 index 变化时自动播放对应视频
- *  - 滑动到倒数第 2 个时触发 loadMore（无限流）
+ * 预加载策略 —— 滑动窗口队列：
+ *  播放器队列始终维持 [当前, 下一个]，ExoPlayer 自动预缓冲下一个。
+ *  下滑时 seekToNext() 直接播放已缓冲的下一个（零延迟），随后补窗口。
+ *  上滑/跳跃无法用队列回退，重建队列并 seek 到历史位置。
+ *
+ * 进度记忆 —— Room：
+ *  每 3 秒保存当前播放位置；切换视频前立即保存。
+ *  切到某视频时查历史位置，未看完则续播。
  */
 class StreamViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = FeedRepository()
+    private val historyDao = AppDatabase.get(application).watchHistoryDao()
 
     private val _uiState = MutableStateFlow<StreamUiState>(StreamUiState.Loading)
     val uiState: StateFlow<StreamUiState> = _uiState.asStateFlow()
@@ -44,13 +54,19 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    /** 当前视频 */
+    /** 是否命中续播（UI 可提示"继续上次观看"） */
+    private val _resumedFrom = MutableStateFlow<Long>(0L)
+    val resumedFrom: StateFlow<Long> = _resumedFrom.asStateFlow()
+
     val currentVideo: VideoInfo?
         get() = (uiState.value as? StreamUiState.Ready)?.videos?.getOrNull(currentIndex.value)
 
+    /** 进度保存定时任务 */
+    private var progressJob: Job? = null
+
     val exoPlayer: ExoPlayer by lazy {
         ExoPlayer.Builder(application).build().apply {
-            repeatMode = Player.REPEAT_MODE_ONE // 单个视频循环
+            repeatMode = Player.REPEAT_MODE_ONE
             addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
                     _isPlaying.value = playing
@@ -61,6 +77,7 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         loadInitial()
+        startProgressSaver()
     }
 
     /** 首次加载 */
@@ -69,7 +86,7 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.value = StreamUiState.Loading
             val result = repository.loadInitial()
             result.fold(
-                onSuccess = { count ->
+                onSuccess = {
                     val list = repository.currentList()
                     if (list.isEmpty()) {
                         _uiState.value = StreamUiState.Error("没有加载到视频")
@@ -84,45 +101,115 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** 切换到指定位置的视频 */
+    /**
+     * 页面切换。
+     * 只处理"下移一格"走 seekToNext 零延迟；其余情况重建队列。
+     */
     fun onPageChanged(index: Int) {
         if (index == _currentIndex.value) return
-        _currentIndex.value = index
-        playAt(index)
-
-        // 快到底时加载更多（无限流）
         val list = (uiState.value as? StreamUiState.Ready)?.videos ?: return
-        if (index >= list.size - 2) {
-            loadMore()
+        if (index !in list.indices) return
+
+        // 切换前保存当前进度
+        saveProgressNow()
+
+        if (index == _currentIndex.value + 1 && exoPlayer.hasNextMediaItem()) {
+            // 下滑一格：播放已预缓冲的下一个
+            exoPlayer.seekToNext()
+            _currentIndex.value = index
+            // 补充窗口：移除已播的第一个，追加新的下一个
+            exoPlayer.removeMediaItem(0)
+            if (index + 1 < list.size) {
+                exoPlayer.addMediaItem(MediaItem.fromUri(list[index + 1].bestPlayUrl() ?: ""))
+            }
+            applyResumePosition(list[index])
+        } else {
+            // 上滑或跳跃：重建队列 [当前, 下一个]
+            _currentIndex.value = index
+            playAt(index)
+        }
+
+        if (index >= list.size - 2) loadMore()
+    }
+
+    /** 重建播放队列并播放指定位置（带续播） */
+    private fun playAt(index: Int) {
+        val list = (uiState.value as? StreamUiState.Ready)?.videos ?: return
+        val items = mutableListOf<MediaItem>()
+        list.getOrNull(index)?.bestPlayUrl()?.let { items.add(MediaItem.fromUri(it)) }
+        // 预加载下一个
+        list.getOrNull(index + 1)?.bestPlayUrl()?.let { items.add(MediaItem.fromUri(it)) }
+        if (items.isEmpty()) return
+
+        exoPlayer.setMediaItems(items, 0, 0L)
+        exoPlayer.prepare()
+        exoPlayer.play()
+        applyResumePosition(list[index])
+    }
+
+    /** 查询历史位置并续播 */
+    private fun applyResumePosition(video: VideoInfo) {
+        viewModelScope.launch {
+            val pos = historyDao.resumePosition(video.awemeId) ?: 0L
+            if (pos > 0L) {
+                exoPlayer.seekTo(pos)
+                _resumedFrom.value = pos
+            } else {
+                _resumedFrom.value = 0L
+            }
         }
     }
 
-    /** 播放指定位置的视频 */
-    private fun playAt(index: Int) {
-        val video = (uiState.value as? StreamUiState.Ready)?.videos?.getOrNull(index) ?: return
-        val url = video.bestPlayUrl() ?: return
-        exoPlayer.setMediaItem(MediaItem.fromUri(url))
-        exoPlayer.prepare()
-        exoPlayer.play()
+    /** 立即保存当前播放进度 */
+    private fun saveProgressNow() {
+        val video = currentVideo ?: return
+        val pos = exoPlayer.currentPosition
+        if (pos <= 0L) return
+        viewModelScope.launch {
+            historyDao.save(
+                WatchHistory(
+                    awemeId = video.awemeId,
+                    title = video.title,
+                    author = video.author,
+                    cover = video.cover,
+                    positionMs = pos,
+                    durationMs = exoPlayer.duration.takeIf { it > 0 } ?: video.durationMs,
+                    lastWatchAt = System.currentTimeMillis(),
+                )
+            )
+        }
     }
 
-    /** 加载更多并更新列表 */
+    /** 每 3 秒保存一次进度 */
+    private fun startProgressSaver() {
+        progressJob?.cancel()
+        progressJob = viewModelScope.launch {
+            while (isActive) {
+                delay(3_000)
+                if (exoPlayer.isPlaying) saveProgressNow()
+            }
+        }
+    }
+
     private fun loadMore() {
         viewModelScope.launch {
             val result = repository.loadMore()
             result.fold(
                 onSuccess = { added ->
-                    if (added > 0) {
-                        _uiState.value = StreamUiState.Ready(repository.currentList())
-                    }
+                    if (added > 0) _uiState.value = StreamUiState.Ready(repository.currentList())
                 },
-                onFailure = { /* 加载更多失败不影响当前播放 */ },
+                onFailure = { /* 不影响当前播放 */ },
             )
         }
     }
 
     fun togglePlayPause() {
-        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+        if (exoPlayer.isPlaying) {
+            exoPlayer.pause()
+            saveProgressNow()
+        } else {
+            exoPlayer.play()
+        }
     }
 
     fun toggleControls() {
@@ -136,6 +223,8 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     override fun onCleared() {
+        progressJob?.cancel()
+        saveProgressNow()
         exoPlayer.release()
         super.onCleared()
     }
