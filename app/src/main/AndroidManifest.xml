@@ -9,9 +9,10 @@
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
+    <!-- required=false：兼容第三方桌面/非原生TV系统，避免图标被过滤 -->
     <uses-feature
         android:name="android.software.leanback"
-        android:required="true" />
+        android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -26,6 +27,12 @@
             android:exported="true"
             android:banner="@drawable/tv_banner"
             android:launchMode="singleTask">
+            <!-- 普通桌面 / 第三方桌面图标入口 -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Android TV 原生桌面入口 -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
