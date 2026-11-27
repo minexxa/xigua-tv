@@ -23,7 +23,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -69,6 +71,8 @@ fun StreamScreen(
     val resumedFrom by viewModel.resumedFrom.collectAsState()
     val favoriteToast by viewModel.favoriteToast.collectAsState()
     val focusRequester = remember { FocusRequester() }
+    // 首次进入显示操作引导，4 秒后自动消失
+    var showGuide by remember { mutableStateOf(true) }
 
     // 收藏提示 2 秒后自动消失
     LaunchedEffect(favoriteToast) {
@@ -76,6 +80,11 @@ fun StreamScreen(
             kotlinx.coroutines.delay(2_000)
             viewModel.clearFavoriteToast()
         }
+    }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(4_000)
+        showGuide = false
     }
 
     Box(
@@ -88,21 +97,37 @@ fun StreamScreen(
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
                     Key.Enter, Key.DirectionCenter -> {
-                        when (uiState) {
-                            is StreamUiState.Error -> viewModel.loadInitial() // 错误态重试
-                            is StreamUiState.Ready -> {
-                                viewModel.togglePlayPause()
-                                viewModel.toggleControls()
+                        if (showGuide) {
+                            showGuide = false // 引导显示时按 OK 仅关闭引导
+                        } else {
+                            when (uiState) {
+                                is StreamUiState.Error -> viewModel.loadInitial() // 错误态重试
+                                is StreamUiState.Ready -> {
+                                    viewModel.togglePlayPause()
+                                    viewModel.toggleControls()
+                                }
+                                else -> {}
                             }
-                            else -> {}
                         }
                         true
                     }
                     Key.DirectionLeft -> { viewModel.seekBy(-10_000); true }
                     Key.DirectionRight -> { viewModel.seekBy(10_000); true }
+                    // 上下键显式切换视频：VerticalPager 默认不响应遥控器方向键，必须手动驱动
+                    Key.DirectionDown -> {
+                        if (uiState is StreamUiState.Ready) {
+                            viewModel.onPageChanged(viewModel.currentIndex.value + 1)
+                        }
+                        true
+                    }
+                    Key.DirectionUp -> {
+                        if (uiState is StreamUiState.Ready) {
+                            viewModel.onPageChanged(viewModel.currentIndex.value - 1)
+                        }
+                        true
+                    }
                     Key(KeyEvent.KEYCODE_MENU) -> { viewModel.toggleFavorite(); true } // 收藏切换
-                    Key(KeyEvent.KEYCODE_GUIDE), Key(KeyEvent.KEYCODE_F) -> { onOpenMy(); true } // 打开「我的」
-                    // 上下键交给 VerticalPager 处理滚动
+                    Key(KeyEvent.KEYCODE_GUIDE), Key(KeyEvent.KEYCODE_F), Key(KeyEvent.KEYCODE_INFO) -> { onOpenMy(); true } // 打开「我的」
                     else -> false
                 }
             },
@@ -164,6 +189,28 @@ fun StreamScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(text = favoriteToast!!, color = Color.White, fontSize = 22.sp)
+            }
+        }
+
+        // 首次进入操作引导（4 秒后消失）
+        if (showGuide) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color(0xE6000000), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 40.dp, vertical = 32.dp),
+            ) {
+                Column {
+                    Text("遥控器操作指南", color = Color.White, fontSize = 26.sp)
+                    Spacer(Modifier.height(18.dp))
+                    GuideRow("上 / 下", "切换视频")
+                    GuideRow("OK", "暂停 / 显示信息")
+                    GuideRow("左 / 右", "快退 / 快进 10 秒")
+                    GuideRow("菜单键", "收藏 / 取消收藏")
+                    GuideRow("GUIDE / F", "进入「我的」页")
+                    Spacer(Modifier.height(14.dp))
+                    Text("按 OK 随时查看信息", color = Color(0xFFBBBBBB), fontSize = 14.sp)
+                }
             }
         }
     }
@@ -240,6 +287,20 @@ private fun VideoPage(
 }
 
 @Composable
+private fun GuideRow(key: String, action: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = key,
+            color = Color(0xFF4FC3F7),
+            fontSize = 18.sp,
+            modifier = Modifier.width(96.dp),
+        )
+        Text(text = action, color = Color.White, fontSize = 18.sp)
+    }
+    Spacer(Modifier.height(6.dp))
+}
+
+@Composable
 private fun BoxScope.StreamInfoOverlay(video: VideoInfo) {
     Column(
         modifier = Modifier
@@ -273,5 +334,11 @@ private fun BoxScope.StreamInfoOverlay(video: VideoInfo) {
                 )
             }
         }
+        Spacer(Modifier.height(14.dp))
+        Text(
+            text = "上/下切换 · OK暂停 · 左右快进 · 菜单收藏 · GUIDE进入我的",
+            color = Color(0xFF888888),
+            fontSize = 13.sp,
+        )
     }
 }
